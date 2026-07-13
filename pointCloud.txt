@@ -1,0 +1,19 @@
+PointCloud2
+/Larse_map
+/cloud_effected
+/cloud_registered		当前正在扫描的点云 lider坐标系
+/cloud_registered_body		经过运动畸变校正到IMU坐标系的点云
+/cur_scan_in_map		当前正在扫描的点云  camera_init：odom坐标系
+/map				全局地图
+/submap			裁剪后的全局地图的子地图
+
+tf
+map		  地图坐标系
+camera_init	  初始位姿坐标系
+rebot_foot_init   和camera_init重合
+body    	   车辆坐标系
+body_foot 	   和body重合
+
+map->camera_init->body
+
+For frame [camera_init]: No transform to fixed frame [map].  TF error: [Lookup would require extrapolation 6.992432068s into the past.  Requested time 1716362821.018116951 but the earliest data is at time 1716362828.010549068, when looking up transform from frame [camera_init] to frame [map]]

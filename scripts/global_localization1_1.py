@@ -21,8 +21,6 @@ initialized = False
 T_map_to_odom = np.eye(4)
 cur_odom = None
 cur_scan = None
-file_path_jc = '/home/yt/slam_ws/src/FAST_LIO_LOCALIZATION/scripts/fitness_jc.txt'
-file_path_my = '/home/yt/slam_ws/src/FAST_LIO_LOCALIZATION/scripts/fitness_my.txt'
 
 
 def pose_to_mat(pose_msg):
@@ -116,7 +114,7 @@ def crop_global_map_in_FOV(global_map, pose_estimation, cur_odom):
 
 
 def global_localization(pose_estimation):
-    global global_map, cur_scan, cur_odom, T_map_to_odom, file_path_jc, file_path_my
+    global global_map, cur_scan, cur_odom, T_map_to_odom
     # 用icp配准
     # print(global_map, cur_scan, T_map_to_odom)
     rospy.loginfo('Global localization by scan-to-map matching......')
@@ -139,9 +137,6 @@ def global_localization(pose_estimation):
     rospy.loginfo('Time: {}'.format(toc - tic))
     rospy.loginfo('')
 
-    # save_float_to_txt(file_path_jc, fitness)
-    save_float_to_txt(file_path_my, fitness)
-
     # 当全局定位成功时才更新map2odom
     if fitness > LOCALIZATION_TH:
         # T_map_to_odom = np.matmul(transformation, pose_estimation)
@@ -155,7 +150,7 @@ def global_localization(pose_estimation):
         map_to_odom.header.stamp = cur_odom.header.stamp
         map_to_odom.header.frame_id = 'map'
         pub_map_to_odom.publish(map_to_odom)
-        rospy.loginfo('fitness score:{}'.format(fitness))
+        rospy.loginfo('成功!!!!!!!!!!!!!!!!!fitness score:{}'.format(fitness))
         return True
     else:
         rospy.logwarn('Not match!!!!')
@@ -163,6 +158,50 @@ def global_localization(pose_estimation):
         rospy.logwarn('fitness score:{}'.format(fitness))
         return False
 
+def global_localization_init(pose_estimation):
+    global global_map, cur_scan, cur_odom, T_map_to_odom
+    # 用icp配准
+    # print(global_map, cur_scan, T_map_to_odom)
+    rospy.loginfo('Global localization by scan-to-map matching......')
+
+    # TODO 这里注意线程安全
+    scan_tobe_mapped = copy.copy(cur_scan)
+
+    tic = time.time()
+
+    global_map_in_FOV = crop_global_map_in_FOV(global_map, pose_estimation, cur_odom)
+
+    # 粗配准
+    transformation, _ = registration_at_scale(scan_tobe_mapped, global_map_in_FOV, initial=pose_estimation, scale=5)
+
+ 
+    # 精配准
+    transformation, fitness = registration_at_scale(scan_tobe_mapped, global_map_in_FOV, initial=transformation,
+                                                    scale=1)
+    toc = time.time()
+    rospy.loginfo('Time: {}'.format(toc - tic))
+    rospy.loginfo('')
+
+    # 当全局定位成功时才更新map2odom
+    if fitness > LOCALIZATION_TH_init:
+        # T_map_to_odom = np.matmul(transformation, pose_estimation)
+        T_map_to_odom = transformation
+
+        # 发布map_to_odom
+        map_to_odom = Odometry()
+        xyz = tf.transformations.translation_from_matrix(T_map_to_odom)
+        quat = tf.transformations.quaternion_from_matrix(T_map_to_odom)
+        map_to_odom.pose.pose = Pose(Point(*xyz), Quaternion(*quat))
+        map_to_odom.header.stamp = cur_odom.header.stamp
+        map_to_odom.header.frame_id = 'map'
+        pub_map_to_odom.publish(map_to_odom)
+        rospy.loginfo('初始化成功!!!!!!!!!!!!!!!!!fitness score:{}'.format(fitness))
+        return True
+    else:
+        rospy.logwarn('Not match!!!!')
+        rospy.logwarn('{}'.format(transformation))
+        rospy.logwarn('fitness score:{}'.format(fitness))
+        return False
 
 def voxel_down_sample(pcd, voxel_size):
     try:
@@ -178,7 +217,7 @@ def initialize_global_map(pc_msg):
 
     global_map = o3d.geometry.PointCloud()
     global_map.points = o3d.utility.Vector3dVector(msg_to_array(pc_msg)[:, :3])
-    # global_map = voxel_down_sample(global_map, MAP_VOXEL_SIZE)
+    global_map = voxel_down_sample(global_map, MAP_VOXEL_SIZE)
     rospy.loginfo('Global map received.')
 
 
@@ -214,11 +253,6 @@ def thread_localization():
         global_localization(T_map_to_odom)
 
 
-def save_float_to_txt(file_name, value):
-    with open (file_name, 'a') as file:
-        file.write(f"{value:.6f}\n")
-
-
 if __name__ == '__main__':
     MAP_VOXEL_SIZE = 0.4
     SCAN_VOXEL_SIZE = 0.1
@@ -228,7 +262,8 @@ if __name__ == '__main__':
 
     # The threshold of global localization,
     # only those scan2map-matching with higher fitness than LOCALIZATION_TH will be taken
-    LOCALIZATION_TH = 0.90
+    LOCALIZATION_TH_init = 0.90
+    LOCALIZATION_TH = 0.93
 
     # FOV(rad), modify this according to your LiDAR type
     FOV = 6.28
@@ -259,7 +294,7 @@ if __name__ == '__main__':
         pose_msg = rospy.wait_for_message('/initialpose', PoseWithCovarianceStamped)
         initial_pose = pose_to_mat(pose_msg)
         if cur_scan:
-            initialized = global_localization(initial_pose)
+            initialized = global_localization_init(initial_pose)
         else:
             rospy.logwarn('First scan not received!!!!!')
 
